@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ระบบแปลภาษาการประชุม + QR Code มือถือ + สรุปรายงาน</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Sarabun', sans-serif; background-color: #0f172a; color: #f8fafc; }
+    .scrollbar-thin::-webkit-scrollbar { width: 6px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: #1e293b; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 0.7; }
+      50% { transform: scale(1.05); opacity: 0.3; }
+      100% { transform: scale(0.95); opacity: 0.7; }
+    }
+    .recording-pulse { animation: pulse-ring 1.5s infinite; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- ==================== LISTENER MODE (MOBILE / SCAN QR) ==================== -->
+  <div id="listenerView" class="hidden flex-1 flex flex-col max-w-md w-full mx-auto p-5 justify-between">
+    <div class="space-y-5">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 text-center shadow-xl">
+        <span class="inline-block px-3 py-1 text-xs rounded-full bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 mb-2">
+          📱 โหมดผู้ฟังบนมือถือ (Listener)
+        </span>
+        <h1 class="text-lg font-bold text-white">ห้องประชุม: <span id="listenerRoomId" class="text-indigo-400">MEETING-01</span></h1>
+        <p class="text-xs text-slate-400 mt-1">เลือกภาษาและเสียบหูฟังเพื่อฟังเสียงพากย์ส่วนตัว</p>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
+        <div>
+          <label class="block text-xs text-slate-400 mb-1.5">เลือกภาษาที่คุณต้องการฟัง</label>
+          <select id="listenerLang" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-emerald-500">
+            <option value="th" selected>🇹🇭 ภาษาไทย (Thai)</option>
+            <option value="en">🇺🇸 ภาษาอังกฤษ (English)</option>
+            <option value="zh-CN">🇨🇳 ภาษาจีนกลาง (Chinese)</option>
+            <option value="ja">🇯🇵 ภาษาญี่ปุ่น (Japanese)</option>
+            <option value="ko">🇰🇷 ภาษาเกาหลี (Korean)</option>
+          </select>
+        </div>
+
+        <div class="flex items-center justify-between text-xs text-slate-400 pt-1">
+          <span>ความเร็วเสียงพากย์: <strong id="listenerRateLabel" class="text-white">1.1x</strong></span>
+          <input type="range" id="listenerRate" min="0.8" max="1.5" step="0.1" value="1.1" class="w-32 accent-emerald-500">
+        </div>
+
+        <button id="btnToggleListenerAudio" class="w-full py-3.5 rounded-xl font-bold text-sm bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 transition">
+          🎧 เปิดเสียงพากย์บนหูฟังฉัน
+        </button>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 h-72 overflow-y-auto space-y-3 scrollbar-thin" id="listenerSubtitleFeed">
+        <div class="text-center text-slate-500 text-xs py-16">
+          รอรับข้อความแปลจากห้องประชุม...
+        </div>
+      </div>
+    </div>
+
+    <div class="pt-4 text-center">
+      <a href="?" class="text-xs text-slate-400 hover:text-white underline">สลับไปหน้าผู้จัด / เครื่องหลัก</a>
+    </div>
+  </div>
+
+  <!-- ==================== HOST / MAIN VIEW ==================== -->
+  <div id="hostView" class="flex-1 flex flex-col">
+    <!-- Header -->
+    <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-500/30">
+          🎙️
+        </div>
+        <div>
+          <h1 class="text-lg font-bold text-white">Real-Time Meeting Translator Pro</h1>
+          <p class="text-xs text-slate-400">แยกช่องเสียงพากย์ • สแกน QR Code ฟังบนมือถือ • บันทึกสรุปรายงานอัตโนมัติ</p>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2.5">
+        <button id="btnOpenQrModal" class="px-3.5 py-2 text-xs font-medium bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 rounded-xl transition">
+          📱 QR Code ผู้ฟังมือถือ
+        </button>
+        <button id="btnOpenSummaryModal" class="px-3.5 py-2 text-xs font-medium bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl transition">
+          📝 สรุปรายงานการประชุม (<span id="logCountBadge">0</span>)
+        </button>
+        <button id="btnRefreshDevices" class="px-3 py-2 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl border border-slate-700 transition">
+          🔄 รีเฟรชอุปกรณ์เสียง
+        </button>
+        <button id="btnToggleMic" class="px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 transition">
+          <span id="micIcon">▶️</span>
+          <span id="micText">เริ่มการแปลสด</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- Left Column: Audio & Channel Controls -->
+      <div class="lg:col-span-5 space-y-5">
+        <!-- Source Language Card -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
+          <h2 class="text-sm font-semibold text-indigo-400 uppercase tracking-wider mb-3">1. ตั้งค่าภาษาผู้พูด (ต้นทาง)</h2>
+          <div class="space-y-3">
+            <select id="sourceLang" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500">
+              <option value="th-TH">🇹🇭 ภาษาไทย (Thai)</option>
+              <option value="en-US" selected>🇺🇸 ภาษาอังกฤษ (English)</option>
+              <option value="zh-CN">🇨🇳 ภาษาจีนกลาง (Chinese)</option>
+              <option value="ja-JP">🇯🇵 ภาษาญี่ปุ่น (Japanese)</option>
+              <option value="ko-KR">🇰🇷 ภาษาเกาหลี (Korean)</option>
+            </select>
+            <div id="liveInterimBox" class="bg-slate-950/70 border border-slate-800 rounded-xl p-3 min-h-[58px] text-sm text-slate-300 italic">
+              กำลังรอรับเสียงพูด... กดปุ่ม "เริ่มการแปลสด" ด้านบน
+            </div>
+          </div>
+        </div>
+
+        <!-- Multi-Channel Audio Output Routing -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-semibold text-emerald-400 uppercase tracking-wider">2. ช่องเสียงพากย์แยกอิสระ (เครื่องหลัก)</h2>
+            <span class="text-[11px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full">2 ช่องคู่ขนาน</span>
+          </div>
+
+          <!-- Channel 1 -->
+          <div class="bg-slate-800/60 border border-slate-700/80 rounded-xl p-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="font-semibold text-sm text-white flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-sky-400"></span> ช่องเสียงที่ 1 (Channel A)
+              </span>
+              <label class="inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="ch1Enable" checked class="sr-only peer">
+                <div class="w-9 h-5 bg-slate-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-500 relative"></div>
+                <span class="ml-2 text-xs text-slate-300">เปิดเสียง</span>
+              </label>
+            </div>
+            <div class="grid grid-cols-2 gap-2.5">
+              <div>
+                <label class="block text-[11px] text-slate-400 mb-1">แปลเป็นภาษา</label>
+                <select id="ch1Lang" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white">
+                  <option value="th" selected>🇹🇭 ไทย (Thai)</option>
+                  <option value="en">🇺🇸 อังกฤษ (English)</option>
+                  <option value="zh-CN">🇨🇳 จีน (Chinese)</option>
+                  <option value="ja">🇯🇵 ญี่ปุ่น (Japanese)</option>
+                  <option value="ko">🇰🇷 เกาหลี (Korean)</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[11px] text-slate-400 mb-1">แยกหูฟัง ซ้าย/ขวา</label>
+                <select id="ch1Pan" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white">
+                  <option value="0" selected>🎧 ปกติ (ซ้าย + ขวา)</option>
+                  <option value="-1">⬅️ ออกเฉพาะหูซ้าย (L)</option>
+                  <option value="1">➡️ ออกเฉพาะหูขวา (R)</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-400 mb-1">อุปกรณ์เสียงปลายทาง (Output Device)</label>
+              <select id="ch1Device" class="device-select w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-slate-200">
+                <option value="default">ลำโพง / หูฟังหลักของเครื่อง (Default)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Channel 2 -->
+          <div class="bg-slate-800/60 border border-slate-700/80 rounded-xl p-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="font-semibold text-sm text-white flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span> ช่องเสียงที่ 2 (Channel B)
+              </span>
+              <label class="inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="ch2Enable" checked class="sr-only peer">
+                <div class="w-9 h-5 bg-slate-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500 relative"></div>
+                <span class="ml-2 text-xs text-slate-300">เปิดเสียง</span>
+              </label>
+            </div>
+            <div class="grid grid-cols-2 gap-2.5">
+              <div>
+                <label class="block text-[11px] text-slate-400 mb-1">แปลเป็นภาษา</label>
+                <select id="ch2Lang" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white">
+                  <option value="th">🇹🇭 ไทย (Thai)</option>
+                  <option value="en">🇺🇸 อังกฤษ (English)</option>
+                  <option value="zh-CN">🇨🇳 จีน (Chinese)</option>
+                  <option value="ja" selected>🇯🇵 ญี่ปุ่น (Japanese)</option>
+                  <option value="ko">🇰🇷 เกาหลี (Korean)</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[11px] text-slate-400 mb-1">แยกหูฟัง ซ้าย/ขวา</label>
+                <select id="ch2Pan" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white">
+                  <option value="0" selected>🎧 ปกติ (ซ้าย + ขวา)</option>
+                  <option value="-1">⬅️ ออกเฉพาะหูซ้าย (L)</option>
+                  <option value="1">➡️ ออกเฉพาะหูขวา (R)</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-400 mb-1">อุปกรณ์เสียงปลายทาง (Output Device)</label>
+              <select id="ch2Device" class="device-select w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-slate-200">
+                <option value="default">ลำโพง / หูฟังหลักของเครื่อง (Default)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="pt-1 flex items-center justify-between text-xs text-slate-400">
+            <span>ความเร็วเสียงพากย์: <strong id="rateLabel" class="text-white">1.1x</strong></span>
+            <input type="range" id="ttsRate" min="0.8" max="1.5" step="0.1" value="1.1" class="w-36 accent-indigo-500">
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: Live Subtitles & Transcript -->
+      <div class="lg:col-span-7 flex flex-col bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden h-[660px]">
+        <div class="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-900/90">
+          <div class="flex items-center gap-2">
+            <span id="statusDot" class="w-2.5 h-2.5 rounded-full bg-slate-600"></span>
+            <h2 class="text-sm font-semibold text-white">ซับไตเติลการประชุมสด (Live Subtitles)</h2>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="btnTestDemo" class="px-3 py-1.5 text-xs bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 rounded-lg transition">
+              ✨ ทดสอบประโยคตัวอย่าง
+            </button>
+            <button id="btnClearLog" class="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition">
+              ล้างข้อความ
+            </button>
+          </div>
+        </div>
+
+        <div id="subtitleFeed" class="flex-1 p-5 overflow-y-auto space-y-4 scrollbar-thin">
+          <div class="text-center text-slate-500 text-sm my-16">
+            <p class="text-3xl mb-2">💬</p>
+            <p>ข้อความถอดเสียงและคำแปลแยกตามช่องภาษาจะปรากฏที่นี่แบบเรียลไทม์</p>
+            <p class="text-xs mt-1 text-slate-600">คลิก "ทดสอบประโยคตัวอย่าง" หรือ "QR Code ผู้ฟังมือถือ" เพื่อทดลองใช้งานทันที</p>
+          </div>
+        </div>
+
+        <form id="manualForm" class="p-3 bg-slate-950 border-t border-slate-800 flex gap-2">
+          <input type="text" id="manualInput" placeholder="พิมพ์ข้อความเพื่อทดสอบแปล พากย์เสียง และบันทึกรายงาน..." class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+          <button type="submit" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-xl transition">
+            ส่งแปล
+          </button>
+        </form>
+      </div>
+    </main>
+  </div>
+
+  <!-- ==================== QR CODE MODAL ==================== -->
+  <div id="qrModal" class="hidden fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between">
+        <h3 class="text-base font-bold text-white">📱 สแกน QR Code เข้าร่วมฟังบนมือถือ</h3>
+        <button id="btnCloseQrModal" class="text-slate-400 hover:text-white text-lg">✕</button>
+      </div>
+      <p class="text-xs text-slate-400">
+        ผู้เข้าร่วมประชุมสามารถสแกน QR Code หรือเปิดลิงก์ด้านล่างบนมือถือ เพื่อเลือกภาษาที่ต้องการและฟังเสียงผ่านหูฟังส่วนตัว
+      </p>
+      <div class="flex flex-col items-center justify-center bg-white p-4 rounded-xl">
+        <div id="qrcodeContainer"></div>
+      </div>
+      <div>
+        <label class="block text-[11px] text-slate-400 mb-1">รหัสห้องประชุม (Room ID)</label>
+        <div class="flex gap-2">
+          <input type="text" id="roomIdInput" value="MEETING-01" class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white">
+          <button id="btnUpdateRoom" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded-lg">สร้าง QR ใหม่</button>
+        </div>
+      </div>
+      <div class="bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-[11px] text-indigo-300 break-all" id="listenerLinkBox"></div>
+      <div class="flex justify-between items-center pt-1">
+        <a id="btnOpenListenerTab" href="#" target="_blank" class="text-xs text-emerald-400 hover:underline">↗ เปิดหน้าผู้ฟังในแท็บใหม่</a>
+        <button id="btnCopyListenerLink" class="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs rounded-lg">คัดลอกลิงก์</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MEETING SUMMARY MODAL ==================== -->
+  <div id="summaryModal" class="hidden fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl max-h-[88vh] flex flex-col">
+      <div class="flex items-center justify-between">
+        <div>
+          <h3 class="text-base font-bold text-white">📝 บันทึกและสรุปรายงานการประชุมอัตโนมัติ</h3>
+          <p class="text-xs text-slate-400">สร้างจากบทสนทนาจริงที่บันทึกไว้ในเซสชันนี้</p>
+        </div>
+        <button id="btnCloseSummaryModal" class="text-slate-400 hover:text-white text-lg">✕</button>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+        <div>
+          <label class="block text-slate-400 mb-1">หัวข้อการประชุม</label>
+          <input type="text" id="meetingTitleInput" value="การประชุมวางแผนและติดตามความคืบหน้าโครงการ" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white">
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">ภาษาของรายงานสรุป</label>
+          <select id="summaryLangSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white">
+            <option value="th" selected>🇹🇭 ภาษาไทย</option>
+            <option value="en">🇺🇸 English</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="flex gap-2">
+        <button id="btnGenerateSummary" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs rounded-xl transition">
+          ⚡ สร้างสรุปรายงานอัตโนมัติ
+        </button>
+        <button id="btnCopySummary" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs rounded-xl transition">
+          📋 คัดลอกรายงาน
+        </button>
+        <button id="btnDownloadSummary" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded-xl transition">
+          ⬇️ ดาวน์โหลด (.md)
+        </button>
+      </div>
+
+      <textarea id="summaryOutput" rows="13" class="flex-1 w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs text-slate-200 leading-relaxed font-mono scrollbar-thin" placeholder="กดปุ่ม 'สร้างสรุปรายงานอัตโนมัติ' เพื่อประมวลผลรายงานการประชุม..."></textarea>
+    </div>
+  </div>
+
+  <script>
+    // Shared BroadcastChannel for Host <-> Listener synchronization
+    const meetingChannel = new BroadcastChannel('meeting_translator_sync_v1');
+    const meetingLogs = []; // Stores { time, sourceLang, original, ch1Lang, trans1, ch2Lang, trans2 }
+
+    // Detect Listener Mode via ?role=listener&room=...
+    const urlParams = new URLSearchParams(window.location.search);
+    const isListenerMode = urlParams.get('role') === 'listener';
+    const currentRoomId = urlParams.get('room') || 'MEETING-01';
+
+    if (isListenerMode) {
+      document.getElementById('hostView').classList.add('hidden');
+      document.getElementById('listenerView').classList.remove('hidden');
+      document.getElementById('listenerRoomId').textContent = currentRoomId;
+      initListenerMode();
+    } else {
+      initHostMode();
+    }
+
+    // Shared Translation Helper
+    async function translateText(text, sourceLang, targetLang) {
+      const src = sourceLang.split('-')[0];
+      if (src === targetLang) return text;
+      try {
+        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${src}&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        return data[0].map(item => item[0]).join('');
+      } catch (err) {
+        return `[ไม่สามารถแปลได้] ${text}`;
+      }
+    }
+
+    // Shared Queue TTS Player
+    class AudioQueuePlayer {
+      constructor(rateInputId) {
+        this.rateInputId = rateInputId;
+        this.queue = [];
+        this.isPlaying = false;
+        this.audioCtx = null;
+      }
+
+      enqueue(text, lang, deviceId = 'default', panValue = 0) {
+        if (!text || !text.trim()) return;
+        this.queue.push({ text, lang, deviceId, panValue });
+        if (!this.isPlaying) this.playNext();
+      }
+
+      async playNext() {
+        if (this.queue.length === 0) {
+          this.isPlaying = false;
+          return;
+        }
+        this.isPlaying = true;
+        const { text, lang, deviceId, panValue } = this.queue.shift();
+        const rate = parseFloat(document.getElementById(this.rateInputId)?.value || '1.1');
+
+        try {
+          const ttsUrl = `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${encodeURIComponent(lang)}&q=${encodeURIComponent(text)}`;
+          const audio = new Audio(ttsUrl);
+          audio.crossOrigin = 'anonymous';
+          audio.playbackRate = rate;
+
+          if (typeof audio.setSinkId === 'function' && deviceId && deviceId !== 'default') {
+            await audio.setSinkId(deviceId).catch(() => {});
+          }
+
+          const pan = parseFloat(panValue);
+          if (pan !== 0) {
+            if (!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (this.audioCtx.state === 'suspended') await this.audioCtx.resume();
+            const source = this.audioCtx.createMediaElementSource(audio);
+            const panner = this.audioCtx.createStereoPanner();
+            panner.pan.value = pan;
+            source.connect(panner).connect(this.audioCtx.destination);
+          }
+
+          audio.onended = () => this.playNext();
+          audio.onerror = () => this.fallbackSpeech(text, lang, rate);
+          await audio.play();
+        } catch {
+          this.fallbackSpeech(text, lang, rate);
+        }
+      }
+
+      fallbackSpeech(text, lang, rate) {
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.lang = lang;
+        utter.rate = rate;
+        utter.onend = () => this.playNext();
+        utter.onerror = () => this.playNext();
+        window.speechSynthesis.speak(utter);
+      }
+    }
+
+    // ==================== LISTENER LOGIC ====================
+    function initListenerMode() {
+      const listenerPlayer = new AudioQueuePlayer('listenerRate');
+      let audioEnabled = false;
+      let isEmpty = true;
+
+      const btnAudio = document.getElementById('btnToggleListenerAudio');
+      const rateSlider = document.getElementById('listenerRate');
+      const rateLabel = document.getElementById('listenerRateLabel');
+      const feed = document.getElementById('listenerSubtitleFeed');
+
+      rateSlider.addEventListener('input', () => {
+        rateLabel.textContent = `${rateSlider.value}x`;
+      });
+
+      btnAudio.addEventListener('click', () => {
+        audioEnabled = !audioEnabled;
+        if (audioEnabled) {
+          btnAudio.textContent = '🔊 กำลังพากย์เสียงผ่านหูฟัง (คลิกเพื่อปิดเสียง)';
+          btnAudio.classList.replace('bg-emerald-600', 'bg-rose-600');
+          btnAudio.classList.replace('hover:bg-emerald-500', 'hover:bg-rose-500');
+          // Unlock audio context on user gesture
+          const unlock = new Audio();
+          unlock.play().catch(() => {});
+        } else {
+          btnAudio.textContent = '🎧 เปิดเสียงพากย์บนหูฟังฉัน';
+          btnAudio.classList.replace('bg-rose-600', 'bg-emerald-600');
+          btnAudio.classList.replace('hover:bg-rose-500', 'hover:bg-emerald-500');
+        }
+      });
+
+      meetingChannel.onmessage = async (event) => {
+        const payload = event.data;
+        if (!payload || payload.type !== 'NEW_SENTENCE') return;
+
+        const targetLang = document.getElementById('listenerLang').value;
+        const translatedForMe = await translateText(payload.original, payload.sourceLang, targetLang);
+
+        if (isEmpty) {
+          feed.innerHTML = '';
+          isEmpty = false;
+        }
+
+        const card = document.createElement('div');
+        card.className = 'bg-slate-800/80 border border-slate-700 rounded-xl p-3 space-y-1.5';
+        card.innerHTML = `
+          <div class="flex justify-between text-[10px] text-slate-400">
+            <span>${escapeHtml(payload.original)}</span>
+            <span>${escapeHtml(payload.time)}</span>
+          </div>
+          <div class="text-sm font-semibold text-emerald-300">${escapeHtml(translatedForMe)}</div>
+        `;
+        feed.appendChild(card);
+        feed.scrollTop = feed.scrollHeight;
+
+        if (audioEnabled) {
+          listenerPlayer.enqueue(translatedForMe, targetLang, 'default', 0);
+        }
+      };
+    }
+
+    // ==================== HOST LOGIC ====================
+    function initHostMode() {
+      let isRecording = false;
+      let recognition = null;
+      let isFirstMessage = true;
+
+      const btnToggleMic = document.getElementById('btnToggleMic');
+      const micIcon = document.getElementById('micIcon');
+      const micText = document.getElementById('micText');
+      const statusDot = document.getElementById('statusDot');
+      const liveInterimBox = document.getElementById('liveInterimBox');
+      const subtitleFeed = document.getElementById('subtitleFeed');
+      const ttsRate = document.getElementById('ttsRate');
+      const rateLabel = document.getElementById('rateLabel');
+      const logCountBadge = document.getElementById('logCountBadge');
+
+      const playerCh1 = new AudioQueuePlayer('ttsRate');
+      const playerCh2 = new AudioQueuePlayer('ttsRate');
+
+      ttsRate.addEventListener('input', () => {
+        rateLabel.textContent = `${ttsRate.value}x`;
+      });
+
+      async function loadAudioDevices() {
+        try {
+          await navigator.mediaDevices.getUserMedia({ audio: true });
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
+          document.querySelectorAll('.device-select').forEach(select => {
+            const currentVal = select.value;
+            select.innerHTML = '';
+            audioOutputs.forEach((device, idx) => {
+              const opt = document.createElement('option');
+              opt.value = device.deviceId;
+              opt.textContent = device.label || `ลำโพง / หูฟังชุดที่ ${idx + 1}`;
+              select.appendChild(opt);
+            });
+            if ([...select.options].some(o => o.value === currentVal)) {
+              select.value = currentVal;
+            }
+          });
+        } catch (err) {
+          console.warn('ไม่สามารถเข้าถึงรายชื่ออุปกรณ์เสียงได้:', err);
+        }
+      }
+
+      document.getElementById('btnRefreshDevices').addEventListener('click', loadAudioDevices);
+
+      async function handleFinalSentence(originalText) {
+        if (!originalText.trim()) return;
+        const sourceLang = document.getElementById('sourceLang').value;
+
+        const ch1Enabled = document.getElementById('ch1Enable').checked;
+        const ch1Lang = document.getElementById('ch1Lang').value;
+        const ch1Device = document.getElementById('ch1Device').value;
+        const ch1Pan = document.getElementById('ch1Pan').value;
+
+        const ch2Enabled = document.getElementById('ch2Enable').checked;
+        const ch2Lang = document.getElementById('ch2Lang').value;
+        const ch2Device = document.getElementById('ch2Device').value;
+        const ch2Pan = document.getElementById('ch2Pan').value;
+
+        const [trans1, trans2] = await Promise.all([
+          translateText(originalText, sourceLang, ch1Lang),
+          translateText(originalText, sourceLang, ch2Lang)
+        ]);
+
+        if (ch1Enabled) playerCh1.enqueue(trans1, ch1Lang, ch1Device, ch1Pan);
+        if (ch2Enabled) playerCh2.enqueue(trans2, ch2Lang, ch2Device, ch2Pan);
+
+        const timeStr = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+        // Save to meeting log for summary generation
+        meetingLogs.push({
+          time: timeStr,
+          sourceLang,
+          original: originalText,
+          ch1Lang,
+          trans1,
+          ch2Lang,
+          trans2
+        });
+        logCountBadge.textContent = meetingLogs.length;
+
+        // Broadcast to mobile/listener tabs
+        meetingChannel.postMessage({
+          type: 'NEW_SENTENCE',
+          time: timeStr,
+          sourceLang,
+          original: originalText
+        });
+
+        if (isFirstMessage) {
+          subtitleFeed.innerHTML = '';
+          isFirstMessage = false;
+        }
+
+        const card = document.createElement('div');
+        card.className = 'bg-slate-800/70 border border-slate-700/80 rounded-xl p-4 space-y-2 transition hover:border-slate-600';
+        card.innerHTML = `
+          <div class="flex items-center justify-between text-[11px] text-slate-400">
+            <span>ต้นฉบับ (${sourceLang})</span>
+            <span>${timeStr}</span>
+          </div>
+          <p class="text-sm text-slate-300">${escapeHtml(originalText)}</p>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 pt-2 border-t border-slate-700/60">
+            <div class="bg-slate-900/80 rounded-lg p-2.5 border-l-2 border-sky-400">
+              <div class="text-[10px] text-sky-400 font-semibold mb-0.5">ช่อง 1 (${ch1Lang.toUpperCase()})</div>
+              <div class="text-sm font-medium text-white">${escapeHtml(trans1)}</div>
+            </div>
+            <div class="bg-slate-900/80 rounded-lg p-2.5 border-l-2 border-amber-400">
+              <div class="text-[10px] text-amber-400 font-semibold mb-0.5">ช่อง 2 (${ch2Lang.toUpperCase()})</div>
+              <div class="text-sm font-medium text-white">${escapeHtml(trans2)}</div>
+            </div>
+          </div>
+        `;
+        subtitleFeed.appendChild(card);
+        subtitleFeed.scrollTop = subtitleFeed.scrollHeight;
+      }
+
+      function initSpeechRecognition() {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+          alert('เบราว์เซอร์ของคุณไม่รองรับการถอดเสียงอัตโนมัติ กรุณาใช้ Google Chrome หรือ Microsoft Edge');
+          return null;
+        }
+        const recog = new SpeechRecognition();
+        recog.continuous = true;
+        recog.interimResults = true;
+        recog.lang = document.getElementById('sourceLang').value;
+
+        recog.onresult = (event) => {
+          let interimTranscript = '';
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+              const finalSentence = event.results[i][0].transcript;
+              liveInterimBox.textContent = 'กำลังฟังเสียงพูด...';
+              handleFinalSentence(finalSentence);
+            } else {
+              interimTranscript += event.results[i][0].transcript;
+            }
+          }
+          if (interimTranscript) {
+            liveInterimBox.innerHTML = `<span class="text-indigo-300">กำลังพูด:</span> ${escapeHtml(interimTranscript)}`;
+          }
+        };
+
+        recog.onerror = (event) => {
+          if (event.error !== 'no-speech') console.warn('Speech Recognition Error:', event.error);
+        };
+
+        recog.onend = () => {
+          if (isRecording) {
+            recog.lang = document.getElementById('sourceLang').value;
+            recog.start();
+          }
+        };
+        return recog;
+      }
+
+      btnToggleMic.addEventListener('click', async () => {
+        if (!isRecording) {
+          await loadAudioDevices();
+          recognition = initSpeechRecognition();
+          if (!recognition) return;
+          isRecording = true;
+          recognition.start();
+          btnToggleMic.classList.replace('bg-emerald-600', 'bg-rose-600');
+          btnToggleMic.classList.replace('hover:bg-emerald-500', 'hover:bg-rose-500');
+          micIcon.textContent = '⏹️';
+          micText.textContent = 'หยุดการแปลสด';
+          statusDot.classList.replace('bg-slate-600', 'bg-emerald-400');
+          statusDot.classList.add('recording-pulse');
+          liveInterimBox.textContent = '🎙️ กำลังฟังเสียงพูดในห้องประชุม...';
+        } else {
+          isRecording = false;
+          if (recognition) recognition.stop();
+          btnToggleMic.classList.replace('bg-rose-600', 'bg-emerald-600');
+          btnToggleMic.classList.replace('hover:bg-rose-500', 'hover:bg-emerald-500');
+          micIcon.textContent = '▶️';
+          micText.textContent = 'เริ่มการแปลสด';
+          statusDot.classList.replace('bg-emerald-400', 'bg-slate-600');
+          statusDot.classList.remove('recording-pulse');
+          liveInterimBox.textContent = 'หยุดรับเสียงชั่วคราว';
+        }
+      });
+
+      document.getElementById('sourceLang').addEventListener('change', () => {
+        if (isRecording && recognition) recognition.stop();
+      });
+
+      document.getElementById('manualForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const input = document.getElementById('manualInput');
+        if (input.value.trim()) {
+          handleFinalSentence(input.value.trim());
+          input.value = '';
+        }
+      });
+
+      document.getElementById('btnTestDemo').addEventListener('click', () => {
+        const src = document.getElementById('sourceLang').value;
+        const samples = {
+          'en-US': 'Please finalize the project timeline and assign action items by Friday.',
+          'th-TH': 'ขอให้สรุปกำหนดการส่งมอบงานและมอบหมายผู้รับผิดชอบภายในวันศุกร์นี้ครับ',
+          'zh-CN': '请在周五前确定项目时间表并分配行动事项。',
+          'ja-JP': '金曜日までにプロジェクトのスケジュールを確定し、担当者を割り当ててください。',
+          'ko-KR': '금요일까지 프로젝트 일정을 확정하고 담당 업무를 배정해 주세요.'
+        };
+        handleFinalSentence(samples[src] || samples['en-US']);
+      });
+
+      document.getElementById('btnClearLog').addEventListener('click', () => {
+        subtitleFeed.innerHTML = '';
+        meetingLogs.length = 0;
+        logCountBadge.textContent = '0';
+      });
+
+      // ==================== QR MODAL LOGIC ====================
+      const qrModal = document.getElementById('qrModal');
+      let qrInstance = null;
+
+      function getListenerUrl() {
+        const room = encodeURIComponent(document.getElementById('roomIdInput').value.trim() || 'MEETING-01');
+        const baseUrl = window.location.href.split('?')[0];
+        return `${baseUrl}?role=listener&room=${room}`;
+      }
+
+      function renderQrCode() {
+        const url = getListenerUrl();
+        const container = document.getElementById('qrcodeContainer');
+        container.innerHTML = '';
+        qrInstance = new QRCode(container, {
+          text: url,
+          width: 176,
+          height: 176
+        });
+        document.getElementById('listenerLinkBox').textContent = url;
+        document.getElementById('btnOpenListenerTab').href = url;
+      }
+
+      document.getElementById('btnOpenQrModal').addEventListener('click', () => {
+        qrModal.classList.remove('hidden');
+        renderQrCode();
+      });
+
+      document.getElementById('btnCloseQrModal').addEventListener('click', () => {
+        qrModal.classList.add('hidden');
+      });
+
+      document.getElementById('btnUpdateRoom').addEventListener('click', renderQrCode);
+
+      document.getElementById('btnCopyListenerLink').addEventListener('click', () => {
+        navigator.clipboard.writeText(getListenerUrl());
+        alert('คัดลอกลิงก์ผู้ฟังเรียบร้อยแล้ว');
+      });
+
+      // ==================== SUMMARY MODAL LOGIC ====================
+      const summaryModal = document.getElementById('summaryModal');
+      const summaryOutput = document.getElementById('summaryOutput');
+
+      document.getElementById('btnOpenSummaryModal').addEventListener('click', () => {
+        summaryModal.classList.remove('hidden');
+        if (meetingLogs.length > 0 && !summaryOutput.value.trim()) {
+          buildMeetingSummary();
+        }
+      });
+
+      document.getElementById('btnCloseSummaryModal').addEventListener('click', () => {
+        summaryModal.classList.add('hidden');
+      });
+
+      async function buildMeetingSummary() {
+        if (meetingLogs.length === 0) {
+          summaryOutput.value = 'ยังไม่มีข้อความบทสนทนาในระบบ ลองพูดหรือกด "ทดสอบประโยคตัวอย่าง" ก่อนครับ';
+          return;
+        }
+
+        const title = document.getElementById('meetingTitleInput').value.trim() || 'รายงานการประชุม';
+        const outLang = document.getElementById('summaryLangSelect').value;
+        const dateStr = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+
+        // Extract key sentences & action items
+        const actionKeywords = ['มอบหมาย', 'กำหนด', 'ส่ง', 'ต้อง', 'สรุป', 'ภายใน', 'deadline', 'assign', 'action', 'finalize', 'please', 'ต้องทำ'];
+        const highlights = [];
+        const actionItems = [];
+
+        for (const item of meetingLogs) {
+          const bestText = outLang === 'th' ? (item.ch1Lang === 'th' ? item.trans1 : await translateText(item.original, item.sourceLang, 'th')) : (item.ch1Lang === 'en' ? item.trans1 : await translateText(item.original, item.sourceLang, 'en'));
+          highlights.push(`- [${item.time}] ${bestText}`);
+          if (actionKeywords.some(kw => item.original.toLowerCase().includes(kw) || bestText.toLowerCase().includes(kw))) {
+            actionItems.push(`- [ ] ${bestText} (${item.time})`);
+          }
+        }
+
+        const transcriptLines = meetingLogs.map(m =>
+          `[${m.time}] ต้นฉบับ: ${m.original}\n    ↳ แปล (${m.ch1Lang}): ${m.trans1} | (${m.ch2Lang}): ${m.trans2}`
+        ).join('\n');
+
+        if (outLang === 'th') {
+          summaryOutput.value =
+`# ${title}
+วันที่: ${dateStr} | จำนวนประโยคที่บันทึก: ${meetingLogs.length} รายการ
+
+## 1. ประเด็นสำคัญที่หารือ (Key Highlights)
+${highlights.join('\n')}
+
+## 2. รายการสิ่งที่ต้องดำเนินการต่อ (Action Items)
+${actionItems.length > 0 ? actionItems.join('\n') : '- ไม่มีรายการที่ระบุกำหนดการ/การมอบหมายชัดเจนในบันทึก'}
+
+## 3. บันทึกถอดความและคำแปลทั้งหมด (Full Transcript)
+${transcriptLines}`;
+        } else {
+          summaryOutput.value =
+`# ${title}
+Date: ${dateStr} | Recorded Utterances: ${meetingLogs.length}
+
+## 1. Key Highlights
+${highlights.join('\n')}
+
+## 2. Action Items
+${actionItems.length > 0 ? actionItems.join('\n') : '- No explicit action items detected.'}
+
+## 3. Full Transcript & Translations
+${transcriptLines}`;
+        }
+      }
+
+      document.getElementById('btnGenerateSummary').addEventListener('click', buildMeetingSummary);
+
+      document.getElementById('btnCopySummary').addEventListener('click', () => {
+        if (!summaryOutput.value.trim()) return;
+        navigator.clipboard.writeText(summaryOutput.value);
+        alert('คัดลอกรายงานการประชุมเรียบร้อยแล้ว');
+      });
+
+      document.getElementById('btnDownloadSummary').addEventListener('click', () => {
+        if (!summaryOutput.value.trim()) return;
+        const blob = new Blob([summaryOutput.value], { type: 'text/markdown;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `meeting-summary-${Date.now()}.md`;
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+    }
+  </script>
+</body>
+</html>
